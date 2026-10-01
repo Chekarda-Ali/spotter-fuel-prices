@@ -1,0 +1,15 @@
+{
+  "info": {"name": "Fuel Route Planner", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "variable": [{"key": "base", "value": "http://127.0.0.1:8000"}],
+  "item": [
+    {"name": "Plan route (City, ST) - LA to NYC", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}],
+      "url": "{{base}}/api/route/", "body": {"mode": "raw", "raw": "{\n  \"start\": \"Los Angeles, CA\",\n  \"finish\": \"New York, NY\"\n}"}}},
+    {"name": "Plan route (coordinates)", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}],
+      "url": "{{base}}/api/route/", "body": {"mode": "raw", "raw": "{\n  \"start\": {\"lat\": 32.7767, \"lng\": -96.7970},\n  \"finish\": {\"lat\": 39.7392, \"lng\": -104.9903}\n}"}}},
+    {"name": "Plan route (GET)", "request": {"method": "GET", "url": {"raw": "{{base}}/api/route/?start=Chicago, IL&finish=Atlanta, GA", "host": ["{{base}}"], "path": ["api", "route", ""], "query": [{"key": "start", "value": "Chicago, IL"}, {"key": "finish", "value": "Atlanta, GA"}]}}},
+    {"name": "Custom vehicle (400mi range, 8 mpg)", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}],
+      "url": "{{base}}/api/route/", "body": {"mode": "raw", "raw": "{\n  \"start\": \"Seattle, WA\",\n  \"finish\": \"Miami, FL\",\n  \"max_range_miles\": 400,\n  \"mpg\": 8\n}"}}},
+    {"name": "Validation error", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}],
+      "url": "{{base}}/api/route/", "body": {"mode": "raw", "raw": "{\n  \"start\": \"Paris, France\",\n  \"finish\": \"Denver, CO\"\n}"}}}
+  ]
+}

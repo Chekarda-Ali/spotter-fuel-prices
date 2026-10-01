@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="icon" href="data:,">
+<title>Fuel Route Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#0f172a; --panel:#111c33; --line:#26344f; --text:#e5ecf7; --muted:#8fa0bd; --accent:#22c55e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; }
+  aside { width:380px; max-width:42vw; background:var(--panel); border-right:1px solid var(--line); padding:18px; overflow:auto; }
+  h1 { font-size:18px; margin:0 0 14px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  input { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--line); background:#0b1325; color:var(--text); }
+  button { margin-top:14px; width:100%; padding:10px; border:0; border-radius:8px; background:var(--accent); color:#04130a; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  #map { flex:1; }
+  .summary { margin-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .card { background:#0b1325; border:1px solid var(--line); border-radius:10px; padding:10px; }
+  .card b { display:block; font-size:18px; }
+  .card span { color:var(--muted); font-size:12px; }
+  .stop { margin-top:10px; padding:10px; border-radius:10px; background:#0b1325; border:1px solid var(--line); }
+  .stop .n { display:inline-block; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#04130a; text-align:center; font-weight:700; margin-right:6px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .err { margin-top:14px; padding:10px; border-radius:8px; background:#3b1219; border:1px solid #7f1d1d; color:#fecaca; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Fuel Route Planner</h1>
+  <label>Start (City, ST or lat,lng)</label>
+  <input id="start" value="Los Angeles, CA">
+  <label>Finish</label>
+  <input id="finish" value="New York, NY">
+  <button id="go">Plan route</button>
+  <div id="out"></div>
+</aside>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([39.5, -98.35], 4);
+const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, HERE, Garmin, OpenStreetMap contributors'
+});
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+});
+esri.addTo(map);                                   // keyless default
+L.control.layers({'Esri Streets': esri, 'OpenStreetMap': osm}, null, {position: 'bottomright'}).addTo(map);
+let layer = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function plan() {
+  $('go').disabled = true; $('out').innerHTML = '<p class="muted">Planning…</p>';
+  const q = new URLSearchParams({start: $('start').value, finish: $('finish').value});
+  history.replaceState(null, '', '?' + q);
+  try {
+    const t0 = performance.now();
+    const res = await fetch('/api/route/?' + q);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || JSON.stringify(d));
+    render(d, Math.round(performance.now() - t0));
+  } catch (e) {
+    $('out').innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+  } finally { $('go').disabled = false; }
+}
+
+function render(d, ms) {
+  layer.clearLayers();
+  const line = L.geoJSON(d.route, {style: {color: '#2563eb', weight: 5}}).addTo(layer);
+  L.circleMarker([d.start.lat, d.start.lng], {radius: 8, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1}).bindTooltip('Start: ' + d.start.label).addTo(layer);
+  L.circleMarker([d.finish.lat, d.finish.lng], {radius: 8, color: '#fff', fillColor: '#ef4444', fillOpacity: 1}).bindTooltip('Finish: ' + d.finish.label).addTo(layer);
+  d.fuel_stops.forEach(s => {
+    const icon = L.divIcon({className: '', html: `<div style="background:#22c55e;color:#04130a;font-weight:700;width:26px;height:26px;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center">${s.order}</div>`, iconSize: [26, 26]});
+    L.marker([s.lat, s.lng], {icon}).bindPopup(`<b>${esc(s.name)}</b><br>${esc(s.city)}, ${esc(s.state)}<br>$${s.price_per_gallon}/gal · buy ${s.gallons} gal = $${s.cost}`).addTo(layer);
+  });
+  map.fitBounds(line.getBounds(), {padding: [30, 30]});
+
+  let h = `<div class="summary">
+    <div class="card"><b>$${d.total_fuel_cost.toLocaleString()}</b><span>total fuel cost</span></div>
+    <div class="card"><b>${d.total_gallons} gal</b><span>fuel needed</span></div>
+    <div class="card"><b>${d.distance_miles.toLocaleString()} mi</b><span>distance</span></div>
+    <div class="card"><b>${d.fuel_stops.length}</b><span>fuel stops</span></div></div>`;
+  if (d.origin_fill) h += `<div class="stop"><b>Start</b> <span class="muted">— ${d.origin_fill.gallons} gal @ $${d.origin_fill.price_per_gallon} (assumed) = $${d.origin_fill.cost}</span></div>`;
+  d.fuel_stops.forEach(s => {
+    h += `<div class="stop"><span class="n">${s.order}</span><b>${esc(s.name)}</b><br>
+      <span class="muted">${esc(s.city)}, ${esc(s.state)} · mile ${s.mile_marker} · ${s.detour_miles} mi off route</span><br>
+      ${s.gallons} gal @ $${s.price_per_gallon} = <b>$${s.cost}</b></div>`;
+  });
+  h += `<p class="muted">Response in ${ms} ms${d.cached ? ' (cached)' : ''}.</p>`;
+  $('out').innerHTML = h;
+}
+$('go').onclick = plan;
+const p = new URLSearchParams(location.search);
+if (p.get('start')) { $('start').value = p.get('start'); $('finish').value = p.get('finish') || ''; plan(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0
+pytest-django>=4.9
+pandas>=2.2   # only for scripts/build_datasets.py

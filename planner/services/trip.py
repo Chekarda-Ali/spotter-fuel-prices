@@ -57,7 +57,8 @@ def plan_trip(start, finish, *, max_range=None, mpg=None, start_fuel_miles=0.0, 
             origin_price = index.mean_price
         try:
             plan = plan_fuel_stops(cand.position_miles, cand_prices, total, origin_price,
-                                   max_range, start_fuel_miles, cfg["MIN_SAVING_PER_GALLON"])
+                                   max_range, start_fuel_miles, cfg["MIN_SAVING_PER_GALLON"],
+                                   cfg["MIN_PURCHASE_GALLONS"] * mpg)
             break
         except InfeasibleTripError:
             if attempt == len(corridors) - 1:

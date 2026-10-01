@@ -46,11 +46,15 @@ class Plan:
 
 def plan_fuel_stops(positions, prices, total_miles: float, origin_price: float,
                     max_range: float, start_fuel_miles: float = 0.0,
-                    min_saving: float = 0.0) -> Plan:
+                    min_saving: float = 0.0, min_purchase_miles: float = 0.0) -> Plan:
     """`min_saving` ($/gal): a station only counts as "cheaper" if it saves at
     least this much. 0 gives the exact optimum; a few cents avoids silly
     one-gallon stops for sub-cent savings (cost impact is at most min_saving
-    per gallon bought)."""
+    per gallon bought).
+
+    `min_purchase_miles`: fill-ups smaller than this (in miles of range, i.e.
+    gallons x mpg) are folded into the previous stop when the tank has room, so
+    the driver never makes a stop just to buy a couple of gallons."""
     positions = np.asarray(positions, dtype=float)
     prices = np.asarray(prices, dtype=float)
     # sort candidates by position; equal positions -> cheaper first
@@ -82,4 +86,57 @@ def plan_fuel_stops(positions, prices, total_miles: float, origin_price: float,
             purchases.append(Purchase(node=i, miles=buy, price=float(price[i])))
         fuel += buy - (pos[target] - pos[i])
         i = target
+    if min_purchase_miles > 0:
+        purchases = _merge_small_purchases(purchases, pos, max_range, float(start_fuel_miles), min_purchase_miles,
+                                         float(origin_price))
     return Plan(order=order, purchases=purchases)
+
+
+def _merge_small_purchases(purchases: list[Purchase], pos: list[float], max_range: float,
+                           start_fuel: float, min_miles: float, origin_price: float) -> list[Purchase]:
+    """Remove stops whose fill-up is smaller than `min_miles`.
+
+    A tiny purchase at stop b can be moved without disturbing the rest of the
+    plan, because fuel is conserved (the tank level on arrival at every later
+    stop stays the same). Three ways to move it, each only if physically valid:
+
+      back    -> buy it at the previous stop    (needs room in the tank there)
+      forward -> buy it at the next stop        (needs enough fuel to reach it)
+      origin  -> buy it at the start fill-up    (for a tiny first stop at mile 0)
+
+    The cheapest valid option wins; the smallest purchase is handled first.
+    The origin purchase itself is never removed.
+    """
+    purchases = [Purchase(p.node, p.miles, p.price) for p in purchases]
+    while True:
+        after, level, last_pos = [], start_fuel, 0.0     # tank level right after each purchase
+        for p in purchases:
+            level = level - (pos[p.node] - last_pos) + p.miles
+            after.append(level)
+            last_pos = pos[p.node]
+
+        best = None  # (miles, extra_cost, k, kind)
+        for k, p in enumerate(purchases):
+            if p.node == 0 or p.miles >= min_miles:
+                continue
+            if k > 0 and after[k - 1] + p.miles <= max_range + EPS:
+                best = min(best or (1e18,), (p.miles, (purchases[k - 1].price - p.price) * p.miles, k, "back"))
+            if k + 1 < len(purchases):
+                prev_level = after[k - 1] if k > 0 else start_fuel
+                prev_pos = pos[purchases[k - 1].node] if k > 0 else 0.0
+                if prev_level - (pos[purchases[k + 1].node] - prev_pos) >= -EPS:
+                    best = min(best or (1e18,), (p.miles, (purchases[k + 1].price - p.price) * p.miles, k, "fwd"))
+            if k == 0 and pos[p.node] <= start_fuel + EPS and start_fuel + p.miles <= max_range + EPS:
+                best = min(best or (1e18,), (p.miles, (origin_price - p.price) * p.miles, k, "origin"))
+        if best is None:
+            return purchases
+
+        _, _, k, kind = best
+        if kind == "back":
+            purchases[k - 1].miles += purchases[k].miles
+            del purchases[k]
+        elif kind == "fwd":
+            purchases[k + 1].miles += purchases[k].miles
+            del purchases[k]
+        else:
+            purchases[k] = Purchase(node=0, miles=purchases[k].miles, price=origin_price)

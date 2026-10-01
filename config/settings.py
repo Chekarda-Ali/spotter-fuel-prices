@@ -98,6 +98,8 @@ FUEL_PLANNER = {
     "MAX_DETOUR_MILES": float(os.environ.get("MAX_DETOUR_MILES", 10)),
     # only detour to another station if it saves at least this many $/gal
     "MIN_SAVING_PER_GALLON": float(os.environ.get("MIN_SAVING_PER_GALLON", 0.03)),
+    # never stop just to buy fewer than this many gallons (folded into the previous stop)
+    "MIN_PURCHASE_GALLONS": float(os.environ.get("MIN_PURCHASE_GALLONS", 10)),
     # route is resampled to this spacing for matching + output
     "ROUTE_STEP_MILES": float(os.environ.get("ROUTE_STEP_MILES", 0.5)),
     # stations within this many miles of the origin define the assumed origin price

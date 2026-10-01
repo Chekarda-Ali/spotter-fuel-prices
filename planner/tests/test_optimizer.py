@@ -97,3 +97,61 @@ def test_min_saving_skips_pointless_micro_stops():
     practical = plan_fuel_stops(pos, pr, 900, 4.00, 500, min_saving=0.03)
     assert 1 in [p.node for p in exact.purchases]            # exact optimum stops for 1 cent
     assert [p.node for p in practical.purchases] == [0, 2]   # practical plan skips it
+
+
+def test_tiny_fillup_is_folded_into_previous_stop():
+    # cheaper station at mile 300 would only need 2 gal (20 mi) to finish a 320-mile trip
+    exact = plan_fuel_stops([300], [3.9], 320, 4.0, 500)
+    merged = plan_fuel_stops([300], [3.9], 320, 4.0, 500, min_purchase_miles=100)
+    assert [p.node for p in exact.purchases] == [0, 1]
+    assert [p.node for p in merged.purchases] == [0]                 # one stop instead of two
+    assert merged.purchases[0].miles == pytest.approx(320)           # fuel conserved
+
+
+def test_tiny_fillup_kept_when_tank_cannot_hold_it():
+    # 520-mile trip: origin tank is already full by mile 490, so the 3-gal stop is unavoidable
+    plan = plan_fuel_stops([490], [3.9], 520, 4.0, 500, min_purchase_miles=100)
+    assert [p.node for p in plan.purchases] == [0, 1]
+    assert sum(p.miles for p in plan.purchases) == pytest.approx(520)
+
+
+def test_merge_never_breaks_range():
+    import random
+    for seed in range(200):
+        rnd = random.Random(seed)
+        total = rnd.choice([900, 1600, 2400])
+        pos = sorted(rnd.sample(range(10, total, 10), rnd.randint(5, 25)))
+        pr = [round(rnd.uniform(2.8, 4.5), 2) for _ in pos]
+        try:
+            plan = plan_fuel_stops(pos, pr, total, 3.9, 500, min_saving=0.03, min_purchase_miles=100)
+        except InfeasibleTripError:
+            continue
+        assert sum(p.miles for p in plan.purchases) == pytest.approx(total)
+        # simulate driving: tank never negative, never above range
+        fuel, last = 0.0, 0.0
+        order_pos = [0.0] + [pos[k] for k in plan.order]
+        for p in plan.purchases:
+            fuel -= order_pos[p.node] - last
+            assert fuel >= -1e-6
+            fuel += p.miles
+            assert fuel <= 500 + 1e-6
+            last = order_pos[p.node]
+
+
+def test_tiny_fillup_moves_forward_when_previous_tank_is_full():
+    # origin fills the tank; the 3-gal top-up at mile 30 can't go backward (tank full)
+    # but can be bought later at mile 260, which is reachable on the fuel we have
+    args = ([30, 260], [3.2, 3.3], 700, 3.0, 500)
+    exact = plan_fuel_stops(*args)
+    merged = plan_fuel_stops(*args, min_purchase_miles=100)
+    assert [p.node for p in exact.purchases] == [0, 1, 2]
+    assert [p.node for p in merged.purchases] == [0, 2]
+    assert sum(p.miles for p in merged.purchases) == pytest.approx(700)
+
+
+def test_tiny_first_stop_at_mile_zero_becomes_origin_fillup():
+    # a cheap station right at the start (mile 0) followed by a cheaper one 25 mi away
+    exact = plan_fuel_stops([0, 25], [3.8, 3.0], 320, 4.0, 500)
+    merged = plan_fuel_stops([0, 25], [3.8, 3.0], 320, 4.0, 500, min_purchase_miles=100)
+    assert [p.node for p in exact.purchases] == [1, 2]
+    assert [p.node for p in merged.purchases] == [0, 2]
